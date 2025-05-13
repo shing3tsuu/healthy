@@ -11,13 +11,9 @@ import logging
 
 from core.database.manager import DatabaseManager
 from core.gateways.gateways import HabitGateway, UserGateway
-from services.telegram.handlers import *
+from services.telegram.handlers import DialogSetup as DialogManager, DialogSG
 
 logger = logging.getLogger(__name__)
-
-
-class DialogSG(StatesGroup):
-    MAIN = State()
 
 
 class IsAdminFilter(BaseFilter):
@@ -34,25 +30,12 @@ class DatabaseMiddleware(BaseMiddleware):
 
     async def __call__(self, handler, event, data):
         async with self.db_manager.session() as session:
-            data["session"] = session
-            data["user_gateway"] = UserGateway(session)
+            data["session"] = session  # Проверьте, что это действительно AsyncSession
+            data["user_gateway"] = UserGateway(session) # session передаётся в UserGateway
             data["habit_gateway"] = HabitGateway(session)
-            return await handler(event, data)
+            result = await handler(event, data)
+            return result
 
-
-class DialogManager:
-    def __init__(self):
-        self.dialog = self._create_main_dialog()
-        self.router = Router()
-        self.router.include_router(self.dialog)
-
-    def _create_main_dialog(self) -> Dialog:
-        return Dialog(
-            Window(
-                Const("Добро пожаловать!"),
-                state=DialogSG.MAIN
-            )
-        )
 
 class TelegramApp:
     def __init__(self, config):
@@ -86,9 +69,10 @@ class TelegramApp:
 
     def register_handlers(self):
         @self.main_router.message(Command("start"))
-        async def start_handler(message: Message, dialog_manager: DialogManager):
+        async def start_handler(message: Message, dialog_manager: DialogManager, user_gateway: UserGateway):
             await dialog_manager.start(DialogSG.MAIN)
 
     async def run(self):
+        await self.db_manager.create_tables()
         await self.bot.delete_webhook(drop_pending_updates=True)
         await self.dp.start_polling(self.bot)
