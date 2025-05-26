@@ -13,11 +13,54 @@ from abc import ABC
 from core.models.dataclass_models import *
 from core.database.manager import *
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+class DatabaseLoggerHandler:
+    def __init__(self, logger: logger, enable_timing: bool = True):
+        self.enable_timing = enable_timing
+        self.logger = logger
+
+    def __call__(self, func: Callable | Awaitable[Any]):
+        @wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            start_time = t.monotonic()
+            result, error = None, None
+
+            try:
+                return await func(*args, **kwargs)
+
+            except Exception as e:
+                error = e
+                self.logger.error(f"Error in {func.__name__}: {str(e)}", exc_info=True, extra={"args": args, "kwargs": kwargs})
+                raise
+
+            finally:
+                if self.enable_timing:
+                    duration = t.monotonic() - start_time
+                    self.logger.info(
+                        f"Method {func.__name__} executed in {duration:.4f}s",
+                        extra={"method": func.__name__,"duration": duration,"success": error is None}
+                        )
+
+        return async_wrapper
+
+    async def _send_to_external(self, error: Exception, method_name: str):
+        pass  # Реализация для внешнего сервиса
+
 class SessionManager:
     def __init__(self, session: AsyncSession):
         self._session = session
 
 class UserGateway(SessionManager, BaseUserGateway):
+    def __init__(self, session: AsyncSession):
+        super().__init__(session)
+
+    @DatabaseLoggerHandler(logger=logger, enable_timing=True)
     async def create_user(self, tg_id: int, username: Optional[str], first_name: Optional[str], timezone: str) -> UserDomain:
         statement = (
             insert(User).values(
