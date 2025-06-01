@@ -14,7 +14,7 @@ import time as t
 
 from core.dao.user_dao import BaseUserGateway
 from .logger_handler import DatabaseLoggerHandler
-from core.dao.user_dao import UserDomain, UserHabitDomain
+from core.dao.user_dao import *
 
 
 class UserGateway(BaseUserGateway):
