@@ -1,66 +1,63 @@
-from dataclasses import dataclass
-from typing import Optional
+from pydantic import BaseModel, validator, constr
+from typing import Optional, List
 from datetime import datetime
+import pytz
 
 from .structures import *
 
-@dataclass(slots=True, kw_only=True, frozen=True)
-class UserDomain:
+class UserDomain(BaseModel):
     id: int
     tg_id: int
-    username: Optional[str]
-    first_name: Optional[str]
+    username: constr(min_length=1, max_length=50)
+    first_name: constr(min_length=1, max_length=50)
     timezone: str
     registration_date: datetime
 
+    @staticmethod
+    @validator("timezone")
+    def validate_timezone(value):
+        try:
+            pytz.timezone(value)
+            return value
+        except pytz.UnknownTimeZoneError:
+            raise ValueError("Invalid timezone")
 
-@dataclass(slots=True, kw_only=True, frozen=True)
-class HabitDomain:
+class HabitDomain(BaseModel):
     id: int
     name: str
-    cost_per_unit: Optional[float]
-    info: list[Info]
-    hints: list[Hint]
+    cost_per_unit: Optional[float] = None
+    info: List["InfoDomain"]
+    hints: List["HintDomain"]
 
-
-@dataclass(slots=True, kw_only=True, frozen=True)
-class UserHabitDomain:
+class UserHabitDomain(BaseModel):
     id: int
     user_id: int
     habit_id: int
     start_date: datetime
     last_relapse: Optional[datetime]
-    saved_money: int
+    saved_money: Optional[float] = None
 
-
-@dataclass(slots=True, kw_only=True, frozen=True)
-class InfoDomain:
+class InfoDomain(BaseModel):
     id: int
-    name: str
+    name: constr(min_length=1, max_length=50)
     description: str
     habit_id: int
 
-
-@dataclass(slots=True, kw_only=True, frozen=True)
-class HintDomain:
+class HintDomain(BaseModel):
     id: int
-    name: str
+    name: constr(min_length=1, max_length=50)
     description: str
     habit_id: int
 
-
-@dataclass(slots=True, kw_only=True, frozen=True)
-class ReminderDomain:
+class ReminderDomain(BaseModel):
     id: int
     reminder_type: str
     scheduled_time: time
     is_active: bool
     user_habit_id: int
 
-
-@dataclass(slots=True, kw_only=True, frozen=True)
-class RelapseHistoryDomain:
+class RelapseHistoryDomain(BaseModel):
     id: int
     relapse_time: datetime
-    reason: Optional[str]
+    reason: Optional[constr(min_length=1, max_length=100)]
     user_habit_id: int
