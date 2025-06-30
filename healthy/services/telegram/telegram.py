@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Callable, Awaitable, Dict, Any, Optional
 import logging
 
-from core.database.manager import DatabaseManager
-from core.gateways.gateways import HabitGateway, UserGateway
+from core.database.session_manager import create_database_manager, DatabaseManagerBase, DatabaseManagerSQLite
+from core.gateways.usergateways import UserGateway
+
 from .states import DialogSG
 from .setup import DialogSetup
 from .handlers import DialogHandlers
@@ -28,14 +29,13 @@ class IsAdminFilter(BaseFilter):
 
 
 class DatabaseMiddleware(BaseMiddleware):
-    def __init__(self, db_manager: DatabaseManager):
+    def __init__(self, db_manager: DatabaseManagerBase):
         self.db_manager = db_manager
 
     async def __call__(self, handler, event, data):
         async with self.db_manager.session() as session:
             data["session"] = session
             data["user_gateway"] = UserGateway(session)
-            data["habit_gateway"] = HabitGateway(session)
             result = await handler(event, data)
             return result
 
@@ -43,17 +43,38 @@ class DatabaseMiddleware(BaseMiddleware):
 class TelegramApp:
     def __init__(self, config):
         self.config = config
-        self.db_manager = DatabaseManager(config)
+        self.db_manager = None  # Инициализация отложена
         self.main_router = Router()
         self.bot = None
         self.dp = None
-
         self.dialog_handlers = DialogHandlers()
         self.dialog_getters = DialogGetters()
         self.dialog_setup = DialogSetup(
             self.dialog_handlers,
             self.dialog_getters
         )
+
+    async def setup(self):
+        try:
+            # Инициализируем менеджер БД
+            self.db_manager = await create_database_manager(self.config)
+        except Exception as e:
+            logger.critical(f"Database initialization failed: {e}")
+
+            # Аварийный fallback на in-memory SQLite
+            logger.info("Using in-memory SQLite as fallback")
+            self.config.db.path = ":memory:"
+            self.db_manager = DatabaseManagerSQLite(self.config)
+            await self.db_manager.initialize()
+
+        self.bot = await self.create_bot()
+        self.dp = await self.create_dispatcher()
+        self.register_handlers()
+
+    async def run(self):
+        await self.db_manager.create_tables()
+        await self.bot.delete_webhook(drop_pending_updates=True)
+        await self.dp.start_polling(self.bot)
 
     async def create_bot(self) -> Bot:
         return Bot(
@@ -63,25 +84,24 @@ class TelegramApp:
 
     async def create_dispatcher(self) -> Dispatcher:
         dp = Dispatcher(storage=MemoryStorage())
+
+        # Передаем уже инициализированный db_manager
         dp.update.middleware(DatabaseMiddleware(self.db_manager))
 
         self.main_router.include_router(self.dialog_setup.router)
-
         dp.include_router(self.main_router)
         setup_dialogs(dp)
         return dp
 
-    async def setup(self):
-        self.bot = await self.create_bot()
-        self.dp = await self.create_dispatcher()
-        self.register_handlers()
-
     def register_handlers(self):
         @self.main_router.message(Command("start"))
         async def start_handler(message: Message, dialog_manager: DialogManager):
-            await dialog_manager.start(DialogSG.MAIN)
+            await dialog_manager.start(DialogSG.INTRO)
 
-    async def run(self):
-        await self.db_manager.create_tables()
-        await self.bot.delete_webhook(drop_pending_updates=True)
-        await self.dp.start_polling(self.bot)
+        @self.main_router.message(Command("admin"))
+        async def admin_handler(message: Message, dialog_manager: DialogManager):
+            if message.from_user.id not in self.config.tg_bot.admin_ids:
+                await self.dialog_handlers.on_admin_access_denied(message)
+                return
+
+            await dialog_manager.start(DialogSG.ADMIN)
