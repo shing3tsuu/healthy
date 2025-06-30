@@ -34,121 +34,24 @@ class UserGateway(BaseUserGateway):
             returning(User)
         )
 
-        result = await self._session.execute(statement)
-        user = result.scalar_one()
+        await self._session.execute(statement)
 
-        return UserDomain(
-            id=user.id,
-            tg_id=user.tg_id,
-            username=user.username,
-            first_name=user.first_name,
-            timezone=user.timezone,
-            registration_date=user.registration_date
-        )
-
-    async def get_user_by_tg_id(self, user_tg_id: int) -> Optional[UserDomain]:
-        statement = select(User).where(User.tg_id == user_tg_id)
-        result = await self._session.execute(statement)
-        user = result.scalar_one_or_none()
-
-        if not user:
-            raise NotFoundError(f"User with tg_id={user_tg_id} not found")
-
-        return UserDomain(
-            id=user.id,
-            tg_id=user.tg_id,
-            username=user.username,
-            first_name=user.first_name,
-            timezone=user.timezone,
-            registration_date=user.registration_date
-        )
-
-    async def create_user_habit(self, user_id: int, habit_id: int, start_date: datetime) -> UserHabitDomain:
-        existing_statement = select(UserHabit).where(
-            (UserHabit.user_id == user_id) &
-            (UserHabit.habit_id == habit_id)
-        )
-        existing = await self._session.scalar(existing_statement)
-
-        if existing:
-            raise ConflictError(f"User already have this habit")
-
-        statement = (
-            insert(UserHabit).values(
-                user_id=user_id, habit_id=habit_id, start_date=start_date, last_relapse=None, saved_money=0
-            )
-            .returning(UserHabit)
-        )
-        result = await self._session.execute(statement)
-        user_habit = result.scalar_one()
-        await self._session.flush()
-
-        return UserHabitDomain(
-            id=user_habit.id,
-            user_id=user_habit.user_id,
-            habit_id=user_habit.habit_id,
-            start_date=user_habit.start_date,
-            last_relapse=user_habit.last_relapse,
-            saved_money=user_habit.saved_money
-        )
-
-    async def get_user_habit_by_id(self, user_id: int) -> Optional[list[UserHabitDomain]]:
-        statement = (
-            select(UserHabit)
-            .where(UserHabit.user_id == user_id)
-            .options(joinedload(UserHabit.habit))
-        )
-
-        result = await self._session.execute(statement)
-        user_habits = result.scalars().all()
-        await self._session.flush()
-
-        return [
-            UserHabitDomain(
-            id=user_habit.id,
-            user_id=user_habit.user_id,
-            habit_id=user_habit.habit_id,
-            start_date=user_habit.start_date,
-            last_relapse=user_habit.last_relapse,
-            saved_money=user_habit.saved_money
-        ) for user_habit in user_habits ]
-
-
-    async def create_habit(self, name: str, cost_per_unit: Optional[float], info: list[InfoDomain],hints: list[HintDomain]) -> HabitDomain:
-        existing_statement = select(Habit).where(Habit.name == name)
-        existing = await self._session.scalar(existing_statement)
-
-        if existing:
-            raise ConflictError(f"Habit with name={name} already exists")
-
+    @DatabaseLoggerHandler(enable_timing=True)
+    async def add_admin_habit(self, name: str, cost_per_unit: int | None) -> HabitDomain:
         statement = (
             insert(Habit).values(
                 name=name, cost_per_unit=cost_per_unit
             )
         )
-        result = await self._session.execute(statement)
-        habit = result.scalar_one()
-        await self._session.flush()
 
-        return HabitDomain(
-            id=habit.id,
-            name=habit.name,
-            cost_per_unit=habit.cost_per_unit,
-            info=habit.info,
-            hints=habit.hints
+        await self._session.execute(statement)
+
+    @DatabaseLoggerHandler(enable_timing=True)
+    async def add_admin_hint(self, name: str, description: str, habit_id: int) -> HintDomain:
+        statement = (
+            insert(Hint).values(
+                name=name, description=description, habit_id=habit_id
+            )
         )
 
-    async def get_all_habits(self) -> list[HabitDomain]:
-        statement = select(Habit).options(joinedload(Habit.info), joinedload(Habit.hints))
-        result = await self._session.execute(statement)
-        habits = result.scalars().all()
-        await self._session.flush()
-
-        return [
-            HabitDomain(
-                id=habit.id,
-                name=habit.name,
-                cost_per_unit=habit.cost_per_unit,
-                info=habit.info,
-                hints=habit.hints
-            ) for habit in habits]
+        await self._session.execute(statement)
