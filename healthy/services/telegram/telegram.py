@@ -70,7 +70,7 @@ class TelegramApp:
         self.register_handlers()
 
     async def run(self):
-        await self.db_manager.create_tables()
+        await self.db_manager.create_tables() #/DELETE ON PROD
         await self.bot.delete_webhook(drop_pending_updates=True)
         await self.dp.start_polling(self.bot)
 
