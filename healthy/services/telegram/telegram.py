@@ -43,7 +43,7 @@ class DatabaseMiddleware(BaseMiddleware):
 class TelegramApp:
     def __init__(self, config):
         self.config = config
-        self.db_manager = None  # Инициализация отложена
+        self.db_manager = None
         self.main_router = Router()
         self.bot = None
         self.dp = None
@@ -56,12 +56,10 @@ class TelegramApp:
 
     async def setup(self):
         try:
-            # Инициализируем менеджер БД
             self.db_manager = await create_database_manager(self.config)
         except Exception as e:
             logger.critical(f"Database initialization failed: {e}")
-
-            # Аварийный fallback на in-memory SQLite
+            
             logger.info("Using in-memory SQLite as fallback")
             self.config.db.path = ":memory:"
             self.db_manager = DatabaseManagerSQLite(self.config)
@@ -85,7 +83,6 @@ class TelegramApp:
     async def create_dispatcher(self) -> Dispatcher:
         dp = Dispatcher(storage=MemoryStorage())
 
-        # Передаем уже инициализированный db_manager
         dp.update.middleware(DatabaseMiddleware(self.db_manager))
 
         self.main_router.include_router(self.dialog_setup.router)
